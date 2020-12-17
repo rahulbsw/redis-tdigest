@@ -15,3 +15,7 @@ jobs:
     - uses: actions/checkout@v2
     - name: make
       run: make
+    - name: docker
+      run: make -f DockerMakefile  
+    - name: publish docker image
+      run: make -f DockerMakefile push 
