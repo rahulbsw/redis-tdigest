@@ -3,11 +3,11 @@ NAME=redis-tdigest
 # Set ORG to timescale in the caller
 ORG=dataseirra
 REDIS_VER=latest
+VERSION=1.0-${REDIS_VER}
 IS_LATEST=$(findstring latest,$(VERSION))
-VERSION=$(shell awk '/^ENV REDIS_VER/ {print $$3}' Dockerfile)
 TAG_VERSION=$(ORG)/$(NAME):$(VERSION)
 TAG_LATEST=$(ORG)/$(NAME):latest
-
+TAG=-t $(TAG_VERSION) $(if $(IS_LATEST),,-t $(TAG_LATEST))
 default: image
 
 .build_$(VERSION): Dockerfile

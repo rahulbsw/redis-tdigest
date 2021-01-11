@@ -1,5 +1,5 @@
 ARG REDIS_VER=latest
-FROM redis:${REDIS_VER} as redis-tdigest
+FROM redis:${REDIS_VER}
 RUN set -eux; \
 	mkdir -p /usr/src;
 

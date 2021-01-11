@@ -113,7 +113,6 @@ static int TDigestTypeReplace_RedisCommand(RedisModuleCtx *ctx,
 
     struct TDigest *t;
     if (type == REDISMODULE_KEYTYPE_EMPTY) {
-        int    compression = DEFAULT_COMPRESSION;
         t = tdigestNew(DEFAULT_COMPRESSION);
         RedisModule_ModuleTypeSetValue(key, TDigestType, t);
     } else {
