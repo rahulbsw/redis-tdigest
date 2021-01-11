@@ -30,7 +30,7 @@ def run_test_for_dist(redis, distfn):
   quantiles = [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999]
   values = []
 
-  for i in xrange(NUM_VALUES):
+  for i in range(NUM_VALUES):
     v = distfn()
     redis.tdigest_add(key, v, 1)
     if 0 == i % 2:
@@ -41,17 +41,16 @@ def run_test_for_dist(redis, distfn):
 
   redis.tdigest_merge(keydest, key0, key1)
   redis.tdigest_merge(key0, key1)
-
   values = sorted(values)
 
   for k in testkeys:
     soft_errs = 0
     redis.tdigest_meta(k)
     for i, q in enumerate(quantiles):
-      ix = NUM_VALUES * quantiles[i] - 0.5;
+      ix = NUM_VALUES * quantiles[i] - 0.5
       idx = int(math.floor(ix))
-      p = ix - idx;
-      x = values[idx] * (1 - p) + values[idx + 1] * p;
+      p = ix - idx
+      x = values[idx] * (1 - p) + values[idx + 1] * p
       estimate_x = float(redis.tdigest_quantile(k, q)[0])
       estimate_q = float(redis.tdigest_cdf(k, x)[0])
 
@@ -59,7 +58,9 @@ def run_test_for_dist(redis, distfn):
       if abs(cdf(estimate_x, values) - q) > 0.005:
         soft_errs += 1
     assert soft_errs < 3
-
+  mcdf_value=redis.tdigest_mcdf(0.5,key0, key1)
+  print(mcdf_value)
+  assert True
 
 def test_uniform(redis, flushdb):
   def uniform():
@@ -93,7 +94,7 @@ def test_meta(redis, flushdb):
   assert m0[1] == m1[1] == m2[1] == 0
   assert m0[2] == m1[2] == m2[2]
 
-  for i in xrange(100):
+  for i in range(100):
     redis.tdigest_add('test_meta0', i, 1)
     redis.tdigest_add('test_meta1', i, 1)
     redis.tdigest_add('test_meta2', i, 1)
@@ -107,7 +108,7 @@ def test_meta(redis, flushdb):
   assert m0[1] == m1[1] == m2[1] == 100
   assert m0[2] == m1[2] == m2[2]
 
-  for i in xrange(1000):
+  for i in range(1000):
     redis.tdigest_add('test_meta0', i, 1)
     redis.tdigest_add('test_meta1', i, 1)
     redis.tdigest_add('test_meta2', i, 1)
@@ -128,7 +129,7 @@ def test_mem_leak(redis, flushdb):
   redis.tdigest_new('test_mem_leak0')
   redis.tdigest_new('test_mem_leak1')
 
-  for i in xrange(1000):
+  for i in range(1000):
     redis.tdigest_add('test_mem_leak0', i, 1)
     redis.tdigest_add('test_mem_leak1', i, 1)
 
@@ -138,7 +139,7 @@ def test_mem_leak(redis, flushdb):
 
   start_rss_mem = redis.info()['used_memory_rss']
 
-  for i in xrange(100000):
+  for i in range(100000):
     redis.tdigest_add('test_mem_leak0', i, 1)
     redis.tdigest_add('test_mem_leak1', i, 1)
     if i % 1000 == 0:

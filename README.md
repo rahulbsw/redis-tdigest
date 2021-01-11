@@ -40,6 +40,12 @@ Adds a `value` with the specified `count`. If `key` is missing, an empty t-diges
 
 *Reply:* `long long`
 
+#### `TDIGEST.REPLACE key value count [value count ...]`
+
+Replace Key with new  `value` with the specified `count`. If `key` is missing, an empty t-digest structure is initialized with a default compression of `400`. Returns the sum of counts for all values added.
+
+*Reply:* `long long`
+
 #### `TDIGEST.MERGE destkey sourcekey [sourcekey ...]`
 
 Merges one or more `sourcekey` into `destkey`. If `destkey` is missing, an empty t-digest structure is initialized with a default compression of `400`.
@@ -52,9 +58,20 @@ Returns the cumulative distribution for all provided values. `value` must be a d
 
 *Reply:* `double` array or `nil` if key missing
 
+#### `TDIGEST.MCDF value [value ...] KEYS key [key..]`
+Merge the Tdigest from all the keys and returns the cumulative distribution for all provided values. `value` must be a double. The cumulative distribution returned for all values is between `0..1`.
+
+*Reply:* `double` array or `nil` if key missing
+
 #### `TDIGEST.QUANTILE key quantile [quantile ...]`
 
 Returns the estimate values at all provided quantiles. `quantile` must be a `double` between `0..1`.
+
+*Reply:* `double` array or `nil` if key missing
+
+#### `TDIGEST.MQUANTILE value [value ...] KEYS key [key..]`
+
+Merge the Tdigest from all the keys and returns the estimate values at all provided quantiles. `quantile` must be a `double` between `0..1`.
 
 *Reply:* `double` array or `nil` if key missing
 

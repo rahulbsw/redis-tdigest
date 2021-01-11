@@ -62,17 +62,27 @@ class Redis(object):
     cmd_args.extend(map(str, args))
     return self.client.execute_command(*cmd_args)
 
+  def tdigest_mcdf(self, value, sourcekey, *args):
+    cmd_args = ['TDIGEST.MCDF', value, sourcekey]
+    cmd_args.extend(map(str, args))
+    return self.client.execute_command(*cmd_args)
+
   def tdigest_quantile(self, key, quantile, *args):
     cmd_args = ['TDIGEST.QUANTILE', key, str(quantile)]
     cmd_args.extend(map(str, args))
     return self.client.execute_command(*cmd_args)
 
+  def tdigest_mquantile(self, value, sourcekey, *args):
+    cmd_args = ['TDIGEST.MQUANTILE', value, sourcekey]
+    cmd_args.extend(map(str, args))
+    return self.client.execute_command(*cmd_args)
+
   def tdigest_meta(self, key):
     cmd_args = ['TDIGEST.DEBUG', key]
-    r = self.client.execute_command(*cmd_args)[0]
+    r = str(self.client.execute_command(*cmd_args)[0],'utf-8')
     r = map(int, r.split('(')[1].split(')')[0].split(','))
     # [compression, num_centroids, size]
-    return r
+    return list(r)
 
   def info(self):
     return self.client.info()

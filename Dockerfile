@@ -1,6 +1,11 @@
 ARG REDIS_VER=latest
 FROM redis:${REDIS_VER} as redis-tdigest
 RUN set -eux; \
+	mkdir -p /usr/src;
+
+COPY . /usr/src/
+
+RUN set -eux; \
 	\
 	savedAptMark="$(apt-mark showmanual)"; \
 	apt-get update; \
@@ -17,12 +22,13 @@ RUN set -eux; \
 	; \
 	rm -rf /var/lib/apt/lists/*; \
 	\
-	mkdir -p /usr/src; \
+	#mkdir -p /usr/src; \
 	mkdir -p /usr/lib/redis/modules/; \
-    cd /usr/src ; \
-	git clone https://github.com/rahulbsw/redis-tdigest \
-	; \
-	cd redis-tdigest && make\
+    #cd /usr/src ; \
+	#git clone https://github.com/rahulbsw/redis-tdigest \
+	#; \
+	ls -l /usr/src/redis-tdigest/ ; \
+	cd /usr/src/redis-tdigest && make clean && make \
 	; \
 	cp -r /usr/src/redis-tdigest/tdigest.so /usr/lib/redis/modules/; \
 	rm -r /usr/src/redis-tdigest; \

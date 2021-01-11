@@ -5,14 +5,29 @@
  */
 
 #include <limits.h>
-
+#include <string.h>
 #include "command.h"
 #include "tdigest.h"
+
 
 #define TYPE_NAME "t-digest0"
 #define ENCODING_VER 0
 
 static RedisModuleType *TDigestType;
+/* ============== Helper methods =====================================*/
+static int RMUtil_ArgIndex(const char *arg, RedisModuleString **argv, int argc) {
+
+  size_t larg = strlen(arg);
+  for (int offset = 0; offset < argc; offset++) {
+    size_t l;
+    const char *carg = RedisModule_StringPtrLen(argv[offset], &l);
+    if (l != larg) continue;
+    if (carg != NULL && strncasecmp(carg, arg, larg) == 0) {
+      return offset;
+    }
+  }
+  return -1;
+}
 
 /* ========================== "tdigest" type commands ======================= */
 
@@ -53,6 +68,73 @@ static int TDigestTypeNew_RedisCommand(RedisModuleCtx *ctx,
     return REDISMODULE_OK;
 }
 
+/* TDIGEST.REPLACE key value count [value count ...] [compression] */
+static int TDigestTypeReplace_RedisCommand(RedisModuleCtx *ctx,
+        RedisModuleString **argv, int argc) {
+  RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+
+    if (argc < 4 || argc % 2 != 0)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1],
+            REDISMODULE_READ | REDISMODULE_WRITE);
+    int type = RedisModule_KeyType(key);
+    if (type != REDISMODULE_KEYTYPE_EMPTY
+            && RedisModule_ModuleTypeGetType(key) != TDigestType) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
+ 
+    int num_added = (argc - 2) / 2;
+    double *values = RedisModule_PoolAlloc(ctx, sizeof(double) * num_added);
+    long long *counts = RedisModule_PoolAlloc(ctx, sizeof(long long) * num_added);
+
+    /* Validate all values and weights before trying to add them to ensure atomicity */
+    int i;
+    for (i = 1; i <= num_added; i++)
+    {
+        int idx = i * 2;
+
+        double value;
+        if (RedisModule_StringToDouble(argv[idx], &value) != REDISMODULE_OK) {
+            return RedisModule_ReplyWithError(ctx,
+                    "ERR invalid value: must be a double");
+        }
+
+        long long count;
+        if ((RedisModule_StringToLongLong(argv[idx + 1], &count) != REDISMODULE_OK)
+                || count <= 0) {
+            return RedisModule_ReplyWithError(ctx,
+                    "ERR invalid count: must be a positive 64 bit integer");
+        }
+
+        values[i - 1] = value;
+        counts[i - 1] = count;
+    }
+
+    struct TDigest *t;
+    if (type == REDISMODULE_KEYTYPE_EMPTY) {
+        int    compression = DEFAULT_COMPRESSION;
+        t = tdigestNew(DEFAULT_COMPRESSION);
+        RedisModule_ModuleTypeSetValue(key, TDigestType, t);
+    } else {
+        struct TDigest *t1 = RedisModule_ModuleTypeGetValue(key);
+        t = tdigestNew(t1->compression);
+        RedisModule_ModuleTypeSetValue(key, TDigestType, t);
+    }
+
+    long long total_count = 0;
+    for (i = 0; i < num_added; i++)
+    {
+        tdigestAdd(t, values[i], counts[i]);
+        total_count += counts[i];
+    }
+
+    RedisModule_ReplyWithLongLong(ctx, total_count);
+    RedisModule_ReplicateVerbatim(ctx);
+
+    return REDISMODULE_OK;
+}
+
 /* TDIGEST.ADD key value count [value count ...] */
 static int TDigestTypeAdd_RedisCommand(RedisModuleCtx *ctx,
         RedisModuleString **argv, int argc) {
@@ -68,7 +150,7 @@ static int TDigestTypeAdd_RedisCommand(RedisModuleCtx *ctx,
             && RedisModule_ModuleTypeGetType(key) != TDigestType) {
         return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
     }
-
+ 
     int num_added = (argc - 2) / 2;
     double *values = RedisModule_PoolAlloc(ctx, sizeof(double) * num_added);
     long long *counts = RedisModule_PoolAlloc(ctx, sizeof(long long) * num_added);
@@ -167,6 +249,157 @@ static int TDigestTypeMerge_RedisCommand(RedisModuleCtx *ctx,
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     RedisModule_ReplicateVerbatim(ctx);
+
+    return REDISMODULE_OK;
+}
+
+/* TDIGEST.MCDF value [value ...] KEYS sourcekey [sourcekey ...] */
+static int TDigestTypeMergeCDF_RedisCommand(RedisModuleCtx *ctx,
+        RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+    int num_keys = 0;
+    int keyword_index=0;
+    int i=0, j=0;
+    int num_in_value=0;
+    int num_in_keys=0;
+    
+    if (argc < 3)
+        return RedisModule_WrongArity(ctx);
+
+    keyword_index = RMUtil_ArgIndex("KEYS",argv, argc);
+
+    if (keyword_index < 2|| keyword_index>argc-1)
+        return RedisModule_WrongArity(ctx);
+
+    num_in_keys = argc - (keyword_index+1);
+
+    if(RedisModule_IsKeysPositionRequest(ctx)) {
+        for (i = 0; i < num_in_keys; i++) {
+            RedisModule_KeyAtPos(ctx, i);
+        }   
+        return REDISMODULE_OK;
+    }
+    
+    num_in_value=keyword_index-1;
+    
+    double *values = RedisModule_PoolAlloc(ctx, sizeof(double) * num_in_value);
+ 
+    for (i = 1; i <= num_in_value ; i++)
+    {
+        double value;
+        if (RedisModule_StringToDouble(argv[i], &value) != REDISMODULE_OK) {
+            //RedisModule_Log(ctx, "warning", "invalid value: must be a double %s", argv[i]);
+            return RedisModule_ReplyWithError(ctx,
+                    "ERR invalid value: must be a double");
+        }
+
+        values[i-1] = value;
+    }
+    /* Validate all keys are either empty or tdigest. */
+    RedisModuleKey **keys = RedisModule_PoolAlloc(ctx, num_in_keys);
+    for (i = 1 ; i <= num_in_keys; i++) {
+        RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[i+keyword_index],REDISMODULE_READ | REDISMODULE_WRITE);
+        int type = RedisModule_KeyType(key);
+        if (type != REDISMODULE_KEYTYPE_EMPTY
+                && RedisModule_ModuleTypeGetType(key) != TDigestType) {
+            return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+        }
+        if (type != REDISMODULE_KEYTYPE_EMPTY) {
+            keys[num_keys++] = key;
+        }
+    }
+    
+    struct TDigest *t,*t2;
+    t = tdigestNew(DEFAULT_COMPRESSION);
+   
+    /* Add all centroids from sources to destination. */
+    for (i = 0; i < num_keys; i++) {
+        t2 = RedisModule_ModuleTypeGetValue(keys[i]);
+        for (j = 0; j < t2->num_centroids; j++) {
+            tdigestAdd(t, t2->centroids[j].mean, t2->centroids[j].weight);
+        }
+    }
+    tdigestCompress(t);
+
+    RedisModule_ReplyWithArray(ctx, num_in_value);
+    for (i = 0; i < num_in_value; i++)
+        RedisModule_ReplyWithDouble(ctx, tdigestCDF(t, values[i]));
+
+    return REDISMODULE_OK;
+}
+
+
+/* TDIGEST.MQUANTILE value [value ...] KEYS sourcekey [sourcekey ...] */
+static int TDigestTypeMergeQuantile_RedisCommand(RedisModuleCtx *ctx,
+        RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+    int num_keys = 0;
+    int keyword_index=0;
+    int i=0, j=0;
+    int num_in_value=0;
+    int num_in_keys=0;
+    
+    if (argc < 3)
+        return RedisModule_WrongArity(ctx);
+
+    keyword_index = RMUtil_ArgIndex("KEYS",argv, argc);
+
+    if (keyword_index < 2|| keyword_index>argc-1)
+        return RedisModule_WrongArity(ctx);
+
+    num_in_keys = argc - (keyword_index+1);
+
+    if(RedisModule_IsKeysPositionRequest(ctx)) {
+        for (i = 0; i < num_in_keys; i++) {
+            RedisModule_KeyAtPos(ctx, i);
+        }   
+        return REDISMODULE_OK;
+    }
+    
+    num_in_value=keyword_index-1;
+    
+    double *values = RedisModule_PoolAlloc(ctx, sizeof(double) * num_in_value);
+ 
+    for (i = 1; i <= num_in_value ; i++)
+    {
+        double value;
+        if (RedisModule_StringToDouble(argv[i], &value) != REDISMODULE_OK) {
+            //RedisModule_Log(ctx, "warning", "invalid value: must be a double %s", argv[i]);
+            return RedisModule_ReplyWithError(ctx,
+                    "ERR invalid value: must be a double");
+        }
+
+        values[i-1] = value;
+    }
+    /* Validate all keys are either empty or tdigest. */
+    RedisModuleKey **keys = RedisModule_PoolAlloc(ctx, num_in_keys);
+    for (i = 1 ; i <= num_in_keys; i++) {
+        RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[i+keyword_index],REDISMODULE_READ | REDISMODULE_WRITE);
+        int type = RedisModule_KeyType(key);
+        if (type != REDISMODULE_KEYTYPE_EMPTY
+                && RedisModule_ModuleTypeGetType(key) != TDigestType) {
+            return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+        }
+        if (type != REDISMODULE_KEYTYPE_EMPTY) {
+            keys[num_keys++] = key;
+        }
+    }
+    
+    struct TDigest *t,*t2;
+    t = tdigestNew(DEFAULT_COMPRESSION);
+   
+    /* Add all centroids from sources to destination. */
+    for (i = 0; i < num_keys; i++) {
+        t2 = RedisModule_ModuleTypeGetValue(keys[i]);
+        for (j = 0; j < t2->num_centroids; j++) {
+            tdigestAdd(t, t2->centroids[j].mean, t2->centroids[j].weight);
+        }
+    }
+    tdigestCompress(t);
+
+    RedisModule_ReplyWithArray(ctx, num_in_value);
+    for (i = 0; i < num_in_value; i++)
+        RedisModule_ReplyWithDouble(ctx, tdigestQuantile(t, values[i]));
 
     return REDISMODULE_OK;
 }
@@ -387,6 +620,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
             1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+     if (RedisModule_CreateCommand(ctx, "tdigest.replace",
+            TDigestTypeReplace_RedisCommand, "write deny-oom", 1, 1,
+            1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;    
+
     if (RedisModule_CreateCommand(ctx, "tdigest.merge",
             TDigestTypeMerge_RedisCommand, "write deny-oom getkeys-api", 0, 0,
             0) == REDISMODULE_ERR)
@@ -405,6 +643,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
             TDigestTypeDebug_RedisCommand, "readonly", 1, 1,
             1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
+    if (RedisModule_CreateCommand(ctx, "tdigest.mcdf",
+            TDigestTypeMergeCDF_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "tdigest.mquantile",
+            TDigestTypeMergeQuantile_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
     return REDISMODULE_OK;
 }

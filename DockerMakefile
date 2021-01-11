@@ -2,12 +2,11 @@ NAME=redis-tdigest
 # Default is to timescaledev to avoid unexpected push to the main repo
 # Set ORG to timescale in the caller
 ORG=dataseirra
-REDIS_VER=6.0.9
-VERSION=$(REDIS_VER)
-BETA=$(findstring RC,$(VERSION))
+REDIS_VER=latest
+IS_LATEST=$(findstring latest,$(VERSION))
+VERSION=$(shell awk '/^ENV REDIS_VER/ {print $$3}' Dockerfile)
 TAG_VERSION=$(ORG)/$(NAME):$(VERSION)
 TAG_LATEST=$(ORG)/$(NAME):latest
-TAG=-t $(TAG_VERSION) $(if $(BETA),,-t $(TAG_LATEST))
 
 default: image
 
@@ -16,7 +15,7 @@ default: image
 
 push: image
 	docker push $(TAG_VERSION)
-	if [ -z "$(BETA)" ]; then \
+	if [ -z "$(IS_LATEST)" ]; then \
 		docker push $(TAG_LATEST); \
 	fi
 
